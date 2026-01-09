@@ -1,0 +1,1241 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Educational Escape Room</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.55.2/phaser.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        #game-container { 
+            box-shadow: 0 20px 60px rgba(0,0,0,0.4); 
+            border-radius: 10px; 
+            overflow: hidden; 
+        }
+        #help-btn {
+            position: fixed; top: 20px; right: 20px;
+            background: #fff; color: #667eea;
+            border: none; padding: 15px 30px;
+            border-radius: 50px; font-size: 18px;
+            font-weight: bold; cursor: pointer;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+            z-index: 1000;
+        }
+        #help-btn:hover { transform: translateY(-2px); }
+        #help-modal {
+            display: none; position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.9); z-index: 2000;
+            overflow-y: auto;
+        }
+        #help-content {
+            background: #fff; max-width: 900px;
+            margin: 30px auto; padding: 40px;
+            border-radius: 15px; position: relative;
+        }
+        #close-help {
+            position: absolute; top: 15px; right: 20px;
+            background: #ff4757; color: #fff;
+            border: none; padding: 10px 20px;
+            border-radius: 5px; cursor: pointer;
+        }
+        #close-help:hover { background: #ff3838; }
+        .help-section { margin-bottom: 25px; }
+        .help-section h2 { color: #667eea; margin-bottom: 15px; }
+        .help-section h3 { color: #764ba2; margin: 15px 0 10px; }
+        .help-section p, .help-section ul { color: #333; line-height: 1.6; }
+        .help-section ul { margin-left: 20px; }
+        .key {
+            display: inline-block; background: #f0f0f0;
+            padding: 5px 10px; border-radius: 5px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <button id="help-btn">❓ HELP</button>
+    <div id="help-modal">
+        <div id="help-content">
+            <button id="close-help">✕ Close</button>
+            <div class="help-section">
+                <h2>🎮 Controls</h2>
+                <p><span class="key">↑ ← ↓ →</span> Arrow Keys OR <span class="key">W A S D</span> to move<br>
+                <strong>Mouse Click:</strong> Interact with objects<br>
+                <strong>✕ Button:</strong> Exit to main menu anytime</p>
+            </div>
+            <div class="help-section">
+                <h2>👩‍🏫 Teacher Guide</h2>
+                <p><strong>Main Menu:</strong> Students choose any room in any order<br>
+                <strong>Progress Tracking:</strong> Letters and completion status displayed<br>
+                <strong>Flexible Learning:</strong> Exit anytime with ✕ button, replay any room<br>
+                <strong>Interactive Puzzles:</strong> Includes mazes, object collection, mixing, and movement challenges</p>
+            </div>
+            <div class="help-section">
+                <h2>📚 Rooms</h2>
+                <p>🇺🇸 <strong>US History (CHARGE):</strong> Tea Party, Caesar Cipher, Liberty Bell, Underground Railroad Maze<br>
+                🧪 <strong>Chemistry (REACTS):</strong> Atoms, bonding, periodic table, Element Mixing Lab<br>
+                📖 <strong>English (SYMBOL):</strong> Literature, authors, ciphers, Word Collection<br>
+                🧠 <strong>Psychology (BRAIN):</strong> Neuroscience, brain anatomy, Neural Pathway Maze<br>
+                💼 <strong>Business (PROFIT):</strong> Economics, marketing, supply chain, Resource Collection<br>
+                🎯 <strong>Mixed (CONDUCTOR):</strong> All subjects combined</p>
+            </div>
+            <div class="help-section">
+                <h2>🎓 How to Play</h2>
+                <p>1. Choose a room from main menu<br>
+                2. Solve 6 puzzles by clicking, typing, and moving<br>
+                3. Navigate mazes, collect objects, mix elements<br>
+                4. Collect letters from each puzzle<br>
+                5. Enter the keyword to complete the room<br>
+                6. Return to menu with ✕ button or complete the room!</p>
+            </div>
+        </div>
+    </div>
+    <div id="game-container"></div>
+    <script>
+const hb = document.getElementById('help-btn');
+const hm = document.getElementById('help-modal');
+const ch = document.getElementById('close-help');
+
+hb.onclick = () => hm.style.display = 'block';
+ch.onclick = () => hm.style.display = 'none';
+hm.onclick = (e) => { if (e.target === hm) hm.style.display = 'none'; };
+
+class GameState {
+    constructor() {
+        this.data = {
+            ush: { letters: [], done: false },
+            chem: { letters: [], done: false },
+            eng: { letters: [], done: false },
+            psy: { letters: [], done: false },
+            bus: { letters: [], done: false },
+            mix: { letters: [], done: false }
+        };
+    }
+    
+    add(r, l) {
+        if (!this.data[r].letters.includes(l)) this.data[r].letters.push(l);
+    }
+    
+    get(r) {
+        return this.data[r].letters.join('');
+    }
+    
+    complete(r) {
+        this.data[r].done = true;
+    }
+    
+    isDone(r) {
+        return this.data[r].done;
+    }
+    
+    progress() {
+        let c = 0;
+        for (let r in this.data) if (this.data[r].done) c++;
+        return c + '/6 Complete';
+    }
+}
+
+class Player {
+    constructor(s, x, y) {
+        this.s = s;
+        this.sp = s.physics.add.sprite(x, y, 'player')
+            .setCollideWorldBounds(true)
+            .setDepth(100);
+        this.spd = 250;
+        this.c = s.input.keyboard.createCursorKeys();
+        this.w = {
+            up: s.input.keyboard.addKey('W'),
+            left: s.input.keyboard.addKey('A'),
+            down: s.input.keyboard.addKey('S'),
+            right: s.input.keyboard.addKey('D')
+        };
+    }
+    
+    update() {
+        this.sp.setVelocity(0);
+        const l = this.c.left.isDown || this.w.left.isDown;
+        const r = this.c.right.isDown || this.w.right.isDown;
+        const u = this.c.up.isDown || this.w.up.isDown;
+        const d = this.c.down.isDown || this.w.down.isDown;
+        
+        if (l) this.sp.setVelocityX(-this.spd);
+        else if (r) this.sp.setVelocityX(this.spd);
+        if (u) this.sp.setVelocityY(-this.spd);
+        else if (d) this.sp.setVelocityY(this.spd);
+    }
+}
+
+const PUZZLES = {
+    ush: [
+        { 
+            t: 'Throwing Tea Crates', 
+            d: 'Three crates labeled Tax, Liberty, Freedom\n"Rebellion begins when Liberty comes first."\nClick in the correct order!', 
+            type: 'seq', 
+            i: ['Tax', 'Liberty', 'Freedom'], 
+            c: ['Liberty', 'Tax', 'Freedom'], 
+            l: 'C' 
+        },
+        { 
+            t: 'Mysterious Declaration', 
+            d: 'Decode this Caesar Cipher:\n"Epp qir evI gviexih iuyep"\nHint: Shift backwards by 4', 
+            type: 'txt', 
+            a: 'all men are created equal', 
+            l: 'H' 
+        },
+        { 
+            t: 'Scrambled Text', 
+            d: 'Unscramble this word about a dark period\nin American history:\nVERYLAS', 
+            type: 'txt', 
+            a: 'slavery', 
+            l: 'A' 
+        },
+        { 
+            t: 'Liberty Bell Riddle', 
+            d: 'Riddle:\n"I rang for freedom, but I\'m cracked\nunder pressure. What am I?"', 
+            type: 'txt', 
+            a: 'liberty bell', 
+            l: 'R' 
+        },
+        { 
+            t: 'The Underground Railroad', 
+            d: 'Navigate the Underground Railroad maze!\nCollect all 4 station markers to escape.\nUse Arrow Keys or WASD to move.', 
+            type: 'maze', 
+            stations: ['Freedom', 'Conductor', 'Station', 'Passenger'],
+            l: 'G' 
+        },
+        { 
+            t: 'Stamp Act Challenge', 
+            d: 'The Stamp Act taxed PRINTED materials.\nClick ONLY the printed items!\n(Wrong click = restart)', 
+            type: 'filt', 
+            i: [
+                { n: 'Document', p: 1 }, 
+                { n: 'Book', p: 0 }, 
+                { n: 'Newspaper', p: 1 }, 
+                { n: 'Pamphlet', p: 1 }, 
+                { n: 'Chair', p: 0 }
+            ], 
+            l: 'E' 
+        }
+    ],
+    chem: [
+        { 
+            t: 'Who Am I?', 
+            d: 'Element Identity:\n"I have 6 protons.\nMy mass number is 12.\nWho am I?"', 
+            type: 'txt', 
+            a: 'carbon', 
+            l: 'R' 
+        },
+        { 
+            t: 'Add the Masses', 
+            d: 'Three atomic numbers: 1, 8, 12\nConvert to elements: H, O, C\nFind their mass numbers:\nH=1, O=16, C=12\nWhat is the sum?', 
+            type: 'txt', 
+            a: '29', 
+            l: 'E' 
+        },
+        { 
+            t: 'Fill the Shells', 
+            d: 'Electron Configuration:\n"An atom has 2 electrons in shell 1,\n8 in shell 2, and 1 in shell 3.\nWhat element is this?"', 
+            type: 'txt', 
+            a: 'sodium', 
+            l: 'A' 
+        },
+        { 
+            t: 'Chemical Reaction Lab', 
+            d: 'Mix the three elements by clicking each tube!\nH (Hydrogen) + O (Oxygen) + C (Carbon)\nOnce mixed, identify what reaction occurred.', 
+            type: 'mix', 
+            elements: ['H', 'O', 'C'],
+            question: 'What type of reaction creates energy\nfor life and revolution?\n(Hint: Burning process)',
+            answer: 'combustion',
+            l: 'C' 
+        },
+        { 
+            t: 'Size Matters', 
+            d: 'Atomic & Ionic Radius:\n"Compare Na⁺, Na, and Cl⁻\nWhich is the LARGEST?"', 
+            type: 'txt', 
+            a: 'cl-', 
+            l: 'T' 
+        },
+        { 
+            t: 'Share or Transfer?', 
+            d: 'Chemical Bonding:\n"What type of bond is C-H?\nIonic, Polar Covalent, or Nonpolar Covalent?\n(Hint: electronegativity difference < 0.4)"', 
+            type: 'txt', 
+            a: 'nonpolar', 
+            l: 'S' 
+        }
+    ],
+eng: [
+    { 
+        t: 'The Caged Poem', 
+        d: 'Complete Maya Angelou\'s title:\n"I Know Why the ____ Bird Sings"\n(What word describes trapped freedom?)', 
+        type: 'txt', 
+        a: 'caged', 
+        l: 'S' 
+    },
+    { 
+        t: 'Figurative Language Lock', 
+        d: 'Watch the scrolls unroll!\nMatch each sentence to its figure of speech.\nThen enter the code in order:\nMetaphor(1), Simile(2), Personification(3), Onomatopoeia(4)', 
+        type: 'scrolls', 
+        sentences: [
+            { text: 'The wind whispered secrets.', type: 'Personification', code: 3 },
+            { text: 'He ran as fast as lightning.', type: 'Simile', code: 2 },
+            { text: 'The classroom was a zoo.', type: 'Metaphor', code: 1 },
+            { text: 'Bang! The door slammed shut.', type: 'Onomatopoeia', code: 4 }
+        ],
+        answer: '3214',
+        l: 'Y' 
+    },
+    { 
+        t: 'The Author\'s Intent', 
+        d: 'Who am I?\n"I was born enslaved but freed\nmyself through words.\nMy pen fought for liberty more\nthan any sword."\n(Last name only)', 
+        type: 'txt', 
+        a: 'douglass', 
+        l: 'M' 
+    },
+    { 
+        t: 'The Thematic Cipher', 
+        d: 'Atbash Cipher (A↔Z, B↔Y, etc.):\n"Gsv Uli Rh Xzmw"\n"Freedom lies between the lines"\nWhat word appears when decoded?', 
+        type: 'txt', 
+        a: 'free', 
+        l: 'B' 
+    },
+    { 
+        t: 'Synonym Switchboard', 
+        d: 'Find synonyms and take first letters:\nliberated → free (F)\nsoared → flew (F)\nWhat two-word phrase starts with BE?', 
+        type: 'txt', 
+        a: 'be free', 
+        l: 'O' 
+    },
+    { 
+        t: 'The Final Passage', 
+        d: '"The bars were not made of iron,\nbut of fear, silence, and conformity.\nBreak them, and the world will open."\nWhat do you gain when the bars fall?', 
+        type: 'txt', 
+        a: 'freedom', 
+        l: 'L' 
+    }
+    ],
+    psy: [
+        { 
+            t: 'Endocrinologist\'s Nightmare', 
+            d: 'Neuroscience:\nWhich hormone is released by the\nstomach to signal hunger?\n(Hint: Starts with G)', 
+            type: 'txt', 
+            a: 'ghrelin', 
+            l: 'B' 
+        },
+        { 
+            t: 'Eugenics Epidemic', 
+            d: 'Ethics in Psychology:\nWhat harmful pseudoscience aimed to\n"cleanse" the gene pool?\n(A dark chapter in psychology)', 
+            type: 'txt', 
+            a: 'eugenics', 
+            l: 'R' 
+        },
+        { 
+            t: 'Neural Pathway Maze', 
+            d: 'Navigate the neural pathway!\nTravel from Stimulus to Response\nthrough the brain maze.', 
+            type: 'maze', 
+            stations: ['Stimulus', 'Neuron', 'Synapse', 'Response'],
+            l: 'A' 
+        },
+        { 
+            t: 'Frivolous Foveas', 
+            d: 'Vision & Concentration:\nWhat part of the eye has the highest\nconcentration of cones for detailed vision?\n(The "focus point" of the retina)', 
+            type: 'txt', 
+            a: 'fovea', 
+            l: 'I' 
+        },
+        { 
+            t: 'Nothingness in Neurons', 
+            d: 'Neural Pathways:\nWhat automatic pathway allows you to\npull your hand away from heat instantly?\n(Two words: ____ arc)', 
+            type: 'txt', 
+            a: 'reflex arc', 
+            l: 'N' 
+        },
+        { 
+            t: 'Maximization of the Medulla', 
+            d: 'Brain Systems:\nWhat brain system controls both\nemotions AND memory formation?\n(Hint: Contains hippocampus & amygdala)', 
+            type: 'txt', 
+            a: 'limbic', 
+            l: '!' 
+        }
+    ],
+    bus: [
+        { 
+            t: 'The Startup Equation', 
+            d: 'Business Fundamentals:\nComplete the formula:\nRevenue - Costs = ____\n(The ultimate goal of business)', 
+            type: 'txt', 
+            a: 'profit', 
+            l: 'P' 
+        },
+        { 
+            t: 'Supply Chain Shuffle', 
+            d: 'Flow of Goods:\nWhat comes AFTER Supplier?\nSupplier → ? → Distributor → Retailer → Consumer\n(Who makes the products?)', 
+            type: 'txt', 
+            a: 'manufacturer', 
+            l: 'R' 
+        },
+        { 
+            t: 'Resource Collection', 
+            d: 'Collect business resources!\nFind: Capital, Labor, Materials', 
+            type: 'collect', 
+            items: ['Capital', 'Labor', 'Materials'],
+            l: 'O' 
+        },
+        { 
+            t: 'Marketing Madness', 
+            d: 'Branding Strategy:\nGood branding creates what in customers?\nRecognition, Confusion, or Chaos?\n(What makes people remember you)', 
+            type: 'txt', 
+            a: 'recognition', 
+            l: 'F' 
+        },
+        { 
+            t: 'Economic Equation', 
+            d: 'Supply & Demand:\n"Balance the economy – cause and effect"\nWhen there is SCARCITY,\nwhat increases?\n(Supply, Demand, or Price?)', 
+            type: 'txt', 
+            a: 'price', 
+            l: 'I' 
+        },
+        { 
+            t: 'The Final Pitch', 
+            d: 'Business Principles:\n"You\'ve learned to sell, manage, and invest.\nNow tell us... what drives EVERY business?"\n(One word answer)', 
+            type: 'txt', 
+            a: 'profit', 
+            l: 'T' 
+        }
+    ],
+    mix: [
+        { 
+            t: 'US History - The Spark', 
+            d: 'Liberty\'s cause required a reaction.\nWhich event was the chemical spark?\nStamp Act, Boston Tea Party,\nor Declaration of Independence?', 
+            type: 'txt', 
+            a: 'boston tea party', 
+            l: 'C' 
+        },
+        { 
+            t: 'Chemistry - Energy', 
+            d: 'Elements of Revolution:\nH (1), O (8), and C (6) are highlighted.\nThese create what all life and\nrevolution needs? (One word)', 
+            type: 'txt', 
+            a: 'energy', 
+            l: 'O' 
+        },
+        { 
+            t: 'English - Words Ignite', 
+            d: 'Literary Power:\n"When words ignite the will of the people,\nwhat reaction follows?"\nBond, Reaction, or Revolution?', 
+            type: 'txt', 
+            a: 'revolution', 
+            l: 'N' 
+        },
+        { 
+            t: 'Combined Elements', 
+            d: 'All Three Together:\nHistory + Chemistry + English =\nWhat do these create when combined?\n(Hint: A chemical and social process)', 
+            type: 'txt', 
+            a: 'reaction', 
+            l: 'D' 
+        },
+        { 
+            t: 'Declaration City', 
+            d: 'Historical Geography:\nIn what city did the Founding Fathers\nsign the Declaration of Independence?\n(City of Brotherly Love)', 
+            type: 'txt', 
+            a: 'philadelphia', 
+            l: 'U' 
+        },
+        { 
+            t: 'The Final Connection', 
+            d: 'All subjects guide progress and change.\nWhat guides electricity, orchestras,\nAND underground railroads?\n(One word)', 
+            type: 'txt', 
+            a: 'conductor', 
+            l: 'C' 
+        }
+    ]
+};
+
+const ROOMS = [
+    { k: 'ush', n: '🇺🇸 US HISTORY', c: '#8b4513', kw: 'CHARGE' },
+    { k: 'chem', n: '🧪 CHEMISTRY', c: '#1e3a5f', kw: 'REACTS' },
+    { k: 'eng', n: '📖 ENGLISH', c: '#2d3436', kw: 'SYMBOL' },
+    { k: 'psy', n: '🧠 PSYCHOLOGY', c: '#6c5ce7', kw: 'BRAIN' },
+    { k: 'bus', n: '💼 BUSINESS', c: '#0984e3', kw: 'PROFIT' },
+    { k: 'mix', n: '🎯 MIXED CHALLENGE', c: '#d63031', kw: 'CONDUCTOR' }
+];
+
+class Boot extends Phaser.Scene {
+    constructor() { super({ key: 'Boot' }); }
+    create() { this.scene.start('Load'); }
+}
+
+class Load extends Phaser.Scene {
+    constructor() { super({ key: 'Load' }); }
+    
+    preload() {
+        const w = this.cameras.main.width, h = this.cameras.main.height;
+        const b = this.add.graphics(), p = this.add.graphics();
+        b.fillStyle(0x222222, 0.8);
+        b.fillRect(w / 2 - 160, h / 2 - 25, 320, 50);
+        this.add.text(w / 2, h / 2 - 50, 'Loading...', { fontSize: '20px', fill: '#fff' }).setOrigin(0.5);
+        this.load.on('progress', v => {
+            p.clear();
+            p.fillStyle(0x667eea, 1);
+            p.fillRect(w / 2 - 150, h / 2 - 15, 300 * v, 30);
+        });
+    }
+    
+    create() {
+        const g = this.add.graphics();
+        g.fillStyle(0x00ff88);
+        g.fillCircle(20, 20, 18);
+        g.fillStyle(0x000000);
+        g.fillCircle(15, 15, 3);
+        g.fillCircle(25, 15, 3);
+        g.generateTexture('player', 40, 40);
+        g.destroy();
+        this.scene.start('Menu');
+    }
+}
+
+class Menu extends Phaser.Scene {
+    constructor() { super({ key: 'Menu' }); }
+    
+    create() {
+        const w = this.cameras.main.width, h = this.cameras.main.height;
+        this.add.rectangle(0, 0, w, h, 0x0f0f23).setOrigin(0);
+        this.add.text(w / 2, 70, 'EDUCATIONAL ESCAPE ROOM', {
+            fontSize: '48px',
+            fill: '#00ff88',
+            fontStyle: 'bold',
+            stroke: '#000',
+            strokeThickness: 6
+        }).setOrigin(0.5);
+        
+        this.add.text(w / 2, 130, 'Choose Your Subject', {
+            fontSize: '24px',
+            fill: '#fff'
+        }).setOrigin(0.5);
+        
+        this.add.text(w / 2, 165, window.gameState.progress(), {
+            fontSize: '18px',
+            fill: '#ffd700'
+        }).setOrigin(0.5);
+        
+        ROOMS.forEach((rm, i) => {
+            const y = 230 + i * 85;
+            const done = window.gameState.isDone(rm.k);
+            const lets = window.gameState.get(rm.k);
+            
+            const btn = this.add.text(w / 2 - 180, y, rm.n, {
+                fontSize: '26px',
+                fill: '#fff',
+                backgroundColor: rm.c,
+                padding: { x: 25, y: 12 },
+                fixedWidth: 360
+            }).setInteractive();
+            
+            this.add.text(w / 2 + 200, y + 12, done ? '✓ Done' : (lets ? lets.length + '/6' : '0/6'), {
+                fontSize: '16px',
+                fill: done ? '#00ff00' : '#aaa'
+            }).setOrigin(0, 0.5);
+            
+            btn.on('pointerover', () => {
+                btn.setScale(1.05);
+                btn.setStyle({ backgroundColor: '#fff', fill: rm.c });
+            });
+            
+            btn.on('pointerout', () => {
+                btn.setScale(1);
+                btn.setStyle({ backgroundColor: rm.c, fill: '#fff' });
+            });
+            
+            btn.on('pointerdown', () => this.scene.start('Room', { room: rm }));
+        });
+    }
+}
+
+class Room extends Phaser.Scene {
+    constructor() { super({ key: 'Room' }); }
+    
+    init(d) {
+        this.rm = d.room;
+        this.puz = 0;
+        this.puzzles = PUZZLES[this.rm.k];
+        this.puzzleObjects = [];
+        this.walls = null;
+        this.collectibles = null;
+        this.collected = [];
+    }
+    
+    create() {
+        const w = this.cameras.main.width, h = this.cameras.main.height;
+        this.add.rectangle(0, 0, w, h, Phaser.Display.Color.HexStringToColor(this.rm.c).color).setOrigin(0);
+        
+        this.title = this.add.text(w / 2, 40, this.rm.n, {
+            fontSize: '36px',
+            fill: '#ffd700',
+            fontStyle: 'bold',
+            stroke: '#000',
+            strokeThickness: 6
+        }).setOrigin(0.5).setDepth(1000);
+        
+        const exitBtn = this.add.text(w - 60, 20, '✕', {
+            fontSize: '32px',
+            fill: '#fff',
+            backgroundColor: '#d63031',
+            padding: { x: 12, y: 5 }
+        }).setInteractive().setDepth(1000);
+        
+        exitBtn.on('pointerover', () => exitBtn.setStyle({ backgroundColor: '#ff4757' }));
+        exitBtn.on('pointerout', () => exitBtn.setStyle({ backgroundColor: '#d63031' }));
+        exitBtn.on('pointerdown', () => this.scene.start('Menu'));
+        
+        this.prog = this.add.text(20, 20, 'Puzzle ' + (this.puz + 1) + '/' + this.puzzles.length, {
+            fontSize: '18px',
+            fill: '#fff',
+            backgroundColor: '#333',
+            padding: { x: 10, y: 5 }
+        }).setDepth(1000);
+        
+        this.ldisp = this.add.text(w / 2, h - 20, 'Letters: ' + window.gameState.get(this.rm.k), {
+            fontSize: '22px',
+            fill: '#ffd700',
+            stroke: '#000',
+            strokeThickness: 3
+        }).setOrigin(0.5, 1).setDepth(1000);
+        
+        this.player = new Player(this, w / 2, h - 100);
+        
+        if (this.puz < this.puzzles.length) this.show();
+        else this.showFinal();
+    }
+    
+    update() {
+        if (this.player) this.player.update();
+    }
+    
+    show() {
+        this.clear();
+        const p = this.puzzles[this.puz], w = this.cameras.main.width;
+        
+        const puzzTitle = this.add.text(w / 2, 100, 'Puzzle ' + (this.puz + 1) + ': ' + p.t, {
+            fontSize: '28px',
+            fill: '#fff',
+            stroke: '#000',
+            strokeThickness: 4
+        }).setOrigin(0.5).setDepth(999);
+        this.puzzleObjects.push(puzzTitle);
+        
+        const desc = this.add.text(w / 2, 170, p.d, {
+            fontSize: '18px',
+            fill: '#fff',
+            align: 'center',
+            wordWrap: { width: 900 },
+            stroke: '#000',
+            strokeThickness: 2
+        }).setOrigin(0.5).setDepth(999);
+        this.puzzleObjects.push(desc);
+        
+        if (p.type === 'txt') {
+            const bx = this.add.rectangle(w / 2, 420, 450, 65, 0x333333).setInteractive().setDepth(500);
+            const tx = this.add.text(w / 2, 420, 'Click to Answer', {
+                fontSize: '20px',
+                fill: '#aaa'
+            }).setOrigin(0.5).setDepth(501);
+            this.puzzleObjects.push(bx, tx);
+            
+            bx.on('pointerdown', () => {
+                const ans = (prompt(p.d) || '').toLowerCase().trim();
+                tx.setText(ans).setColor('#fff');
+                const check = p.a.toLowerCase().split(/[, ]+/);
+                if (check.every(word => ans.includes(word))) this.done(p.l);
+                else tx.setText('Wrong! Try again').setColor('#f00');
+            });
+        } else if (p.type === 'seq') {
+            let seq = [];
+            p.i.forEach((it, i) => {
+                const bx = this.add.rectangle(200 + i * 250, 400, 140, 100, 0x8b0000).setInteractive().setDepth(500);
+const tx = this.add.text(200 + i * 250, 400, it, {
+fontSize: '20px',
+fill: '#fff'
+}).setOrigin(0.5).setDepth(501);
+this.puzzleObjects.push(bx, tx);
+            bx.on('pointerdown', () => {
+                seq.push(it);
+                bx.setFillStyle(0x555555).removeInteractive();
+                tx.setAlpha(0.5);
+                if (seq.length === p.i.length) {
+                    if (seq.join(',') === p.c.join(',')) this.done(p.l);
+                    else {
+                        const err = this.add.text(512, 570, 'Wrong order! Restarting...', {
+                            fontSize: '24px',
+                            fill: '#f00'
+                        }).setOrigin(0.5).setDepth(999);
+                        this.puzzleObjects.push(err);
+                        this.time.delayedCall(1500, () => this.show());
+                    }
+                }
+            });
+        });
+    } else if (p.type === 'filt') {
+        let done = 0;
+        const need = p.i.filter(x => x.p).length;
+        p.i.forEach((it, i) => {
+            const bx = this.add.rectangle(120 + i * 170, 400, 130, 90, it.p ? 0x006400 : 0x8b0000).setInteractive().setDepth(500);
+            const tx = this.add.text(120 + i * 170, 400, it.n, {
+                fontSize: '18px',
+                fill: '#fff'
+            }).setOrigin(0.5).setDepth(501);
+            this.puzzleObjects.push(bx, tx);
+            
+            bx.on('pointerdown', () => {
+                if (it.p) {
+                    bx.setFillStyle(0x00ff00).removeInteractive();
+                    done++;
+                    if (done === need) this.done(p.l);
+                } else {
+                    const err = this.add.text(512, 570, 'Wrong! Restarting...', {
+                        fontSize: '24px',
+                        fill: '#f00'
+                    }).setOrigin(0.5).setDepth(999);
+                    this.puzzleObjects.push(err);
+                    this.time.delayedCall(1500, () => this.show());
+                }
+            });
+        });
+    } else if (p.type === 'maze') {
+        this.createMaze(p);
+    } else if (p.type === 'collect') {
+        this.createCollect(p);
+    } else if (p.type === 'mix') {
+        this.createMixing(p);
+    } else if (p.type === 'scrolls') {
+    this.createScrolls(p);
+}
+    
+}
+
+createMaze(p) {
+    this.collected = [];
+    
+    this.walls = this.physics.add.staticGroup();
+    
+    const mazeData = [
+        { x: 200, y: 250, w: 600, h: 20 },
+        { x: 200, y: 630, w: 600, h: 20 },
+        { x: 200, y: 250, w: 20, h: 400 },
+        { x: 780, y: 250, w: 20, h: 400 },
+        { x: 350, y: 350, w: 20, h: 150 },
+        { x: 500, y: 400, w: 20, h: 200 },
+        { x: 650, y: 300, w: 20, h: 150 }
+    ];
+    
+    mazeData.forEach(wall => {
+        const w = this.add.rectangle(wall.x, wall.y, wall.w, wall.h, 0x444444);
+        this.walls.add(w);
+        this.puzzleObjects.push(w);
+    });
+    
+    this.physics.add.collider(this.player.sp, this.walls);
+    
+    this.collectibles = this.physics.add.group();
+    const positions = [
+        { x: 250, y: 300 },
+        { x: 450, y: 500 },
+        { x: 700, y: 350 },
+        { x: 600, y: 550 }
+    ];
+    
+    p.stations.forEach((station, i) => {
+        const pos = positions[i];
+        const circle = this.add.circle(pos.x, pos.y, 25, 0xffd700);
+        const txt = this.add.text(pos.x, pos.y, station.substring(0, 1), {
+            fontSize: '24px',
+            fill: '#000',
+            fontStyle: 'bold'
+        }).setOrigin(0.5);
+        
+        this.collectibles.add(circle);
+        this.puzzleObjects.push(circle, txt);
+    });
+    
+    const counter = this.add.text(512, 220, 'Collected: 0/' + p.stations.length, {
+        fontSize: '20px',
+        fill: '#fff',
+        stroke: '#000',
+        strokeThickness: 3
+    }).setOrigin(0.5).setDepth(999);
+    this.puzzleObjects.push(counter);
+    
+    this.physics.add.overlap(this.player.sp, this.collectibles, (player, item) => {
+        if (!this.collected.includes(item)) {
+            this.collected.push(item);
+            item.setAlpha(0.3);
+            counter.setText('Collected: ' + this.collected.length + '/' + p.stations.length);
+            
+            if (this.collected.length === p.stations.length) {
+                this.time.delayedCall(500, () => this.done(p.l));
+            }
+        }
+    });
+}
+
+createCollect(p) {
+    this.collected = [];
+    
+    this.collectibles = this.physics.add.group();
+    const positions = [
+        { x: 250, y: 350 },
+        { x: 500, y: 450 },
+        { x: 750, y: 380 }
+    ];
+    
+    p.items.forEach((item, i) => {
+        const pos = positions[i];
+        const box = this.add.rectangle(pos.x, pos.y, 80, 80, 0x4CAF50);
+        const txt = this.add.text(pos.x, pos.y, item, {
+            fontSize: '16px',
+            fill: '#fff',
+            fontStyle: 'bold',
+            align: 'center',
+            wordWrap: { width: 70 }
+        }).setOrigin(0.5);
+        
+        this.collectibles.add(box);
+        this.puzzleObjects.push(box, txt);
+    });
+    
+    const counter = this.add.text(512, 240, 'Collected: 0/' + p.items.length, {
+        fontSize: '22px',
+        fill: '#fff',
+        stroke: '#000',
+        strokeThickness: 3
+    }).setOrigin(0.5).setDepth(999);
+    this.puzzleObjects.push(counter);
+    
+    this.physics.add.overlap(this.player.sp, this.collectibles, (player, item) => {
+        if (!this.collected.includes(item)) {
+            this.collected.push(item);
+            item.destroy();
+            counter.setText('Collected: ' + this.collected.length + '/' + p.items.length);
+            
+            if (this.collected.length === p.items.length) {
+                this.time.delayedCall(500, () => this.done(p.l));
+            }
+        }
+    });
+}
+
+createMixing(p) {
+    let mixed = [];
+    
+    const tubePositions = [
+        { x: 250, y: 400, color: 0xff6b6b, label: 'H' },
+        { x: 512, y: 400, color: 0x4ecdc4, label: 'O' },
+        { x: 774, y: 400, color: 0xffe66d, label: 'C' }
+    ];
+    
+    const tubes = [];
+    tubePositions.forEach((tube, i) => {
+        const body = this.add.rectangle(tube.x, tube.y, 80, 150, tube.color, 0.7).setInteractive().setDepth(500);
+        
+        const label = this.add.text(tube.x, tube.y, tube.label, {
+            fontSize: '48px',
+            fill: '#fff',
+            fontStyle: 'bold',
+            stroke: '#000',
+            strokeThickness: 4
+        }).setOrigin(0.5).setDepth(501);
+        
+        const instruction = this.add.text(tube.x, tube.y + 100, 'Click to pour', {
+            fontSize: '14px',
+            fill: '#fff'
+        }).setOrigin(0.5).setDepth(501);
+        
+        this.puzzleObjects.push(body, label, instruction);
+        tubes.push({ body, label, instruction, element: tube.label });
+    });
+    
+    const beaker = this.add.circle(512, 550, 60, 0x333333, 0.3);
+    const beakerLabel = this.add.text(512, 550, '', {
+        fontSize: '20px',
+        fill: '#ffd700',
+        fontStyle: 'bold'
+    }).setOrigin(0.5);
+    this.puzzleObjects.push(beaker, beakerLabel);
+    
+    const counter = this.add.text(512, 240, 'Pour all elements into the beaker!', {
+        fontSize: '20px',
+        fill: '#fff',
+        stroke: '#000',
+        strokeThickness: 3
+    }).setOrigin(0.5).setDepth(999);
+    this.puzzleObjects.push(counter);
+    
+    tubes.forEach(tube => {
+        tube.body.on('pointerdown', () => {
+            if (!mixed.includes(tube.element)) {
+                mixed.push(tube.element);
+                tube.body.setAlpha(0.3);
+                tube.instruction.setText('Poured!');
+                beakerLabel.setText(mixed.join(' + '));
+                
+                beaker.setFillStyle(0xffd700, 0.6);
+                this.time.delayedCall(200, () => beaker.setFillStyle(0x333333, 0.3));
+                
+                if (mixed.length === p.elements.length) {
+                    counter.setText('Reaction complete! 💥');
+                    
+                    this.time.delayedCall(1500, () => {
+                        this.puzzleObjects.forEach(obj => {
+                            if (obj && obj !== this.title && obj !== this.prog && obj !== this.ldisp) {
+                                obj.destroy();
+                            }
+                        });
+                        this.puzzleObjects = [];
+                        
+                        const questionText = this.add.text(512, 300, p.question, {
+                            fontSize: '22px',
+                            fill: '#fff',
+                            align: 'center',
+                            wordWrap: { width: 800 },
+                            stroke: '#000',
+                            strokeThickness: 3
+                        }).setOrigin(0.5).setDepth(999);
+                        
+                        const bx = this.add.rectangle(512, 450, 450, 65, 0x333333).setInteractive().setDepth(500);
+                        const tx = this.add.text(512, 450, 'Click to Answer', {
+                            fontSize: '20px',
+                            fill: '#aaa'
+                        }).setOrigin(0.5).setDepth(501);
+                        
+                        this.puzzleObjects.push(questionText, bx, tx);
+                        
+                        bx.on('pointerdown', () => {
+                            const ans = (prompt(p.question) || '').toLowerCase().trim();
+                            tx.setText(ans).setColor('#fff');
+                            if (ans.includes(p.answer)) {
+                                this.done(p.l);
+                            } else {
+                                tx.setText('Wrong! Try again').setColor('#f00');
+                            }
+                        });
+                    });
+                }
+            }
+        });
+        
+        tube.body.on('pointerover', () => {
+            if (!mixed.includes(tube.element)) {
+                tube.body.setScale(1.1);
+            }
+        });
+        
+        tube.body.on('pointerout', () => {
+            tube.body.setScale(1);
+        });
+    });
+}
+
+
+createScrolls(p) {
+    const scrolls = [];
+    const startY = -200; // Start above screen
+    const positions = [
+        { x: 180, finalY: 300 },
+        { x: 380, finalY: 380 },
+        { x: 620, finalY: 340 },
+        { x: 820, finalY: 360 }
+    ];
+    
+    // Instruction text
+    const instruction = this.add.text(512, 240, 'Watch the scrolls unroll!\nClick each scroll to reveal its sentence.', {
+        fontSize: '20px',
+        fill: '#fff',
+        align: 'center',
+        stroke: '#000',
+        strokeThickness: 3
+    }).setOrigin(0.5).setDepth(999);
+    this.puzzleObjects.push(instruction);
+    
+    // Create scrolls with animations
+    p.sentences.forEach((sentence, i) => {
+        const pos = positions[i];
+        
+        // Scroll container
+        const scrollContainer = this.add.container(pos.x, startY).setDepth(500 + i);
+        
+        // Scroll rod (top)
+        const rodTop = this.add.rectangle(0, -80, 120, 15, 0x8b4513);
+        
+        // Scroll paper (starts rolled up)
+        const paper = this.add.rectangle(0, -80, 100, 0, 0xf4e8d0);
+        
+        // Scroll rod (bottom) - initially hidden
+        const rodBottom = this.add.rectangle(0, -80, 120, 15, 0x8b4513);
+        rodBottom.setAlpha(0);
+        
+        // Text on scroll (initially hidden)
+        const scrollText = this.add.text(0, 0, '', {
+            fontSize: '13px',
+            fill: '#2c1810',
+            align: 'center',
+            wordWrap: { width: 90 },
+            fontStyle: 'italic'
+        }).setOrigin(0.5);
+        scrollText.setAlpha(0);
+        
+        // Label below scroll
+        const label = this.add.text(0, 100, `Scroll ${i + 1}`, {
+            fontSize: '16px',
+            fill: '#ffd700',
+            fontStyle: 'bold'
+        }).setOrigin(0.5);
+        label.setAlpha(0);
+        
+        scrollContainer.add([rodTop, paper, rodBottom, scrollText, label]);
+        this.puzzleObjects.push(scrollContainer);
+        
+        // Animate scroll dropping down
+        this.tweens.add({
+            targets: scrollContainer,
+            y: pos.finalY,
+            duration: 800 + i * 200,
+            ease: 'Bounce.easeOut',
+            delay: i * 300,
+            onComplete: () => {
+                // After drop, unroll the scroll
+                this.tweens.add({
+                    targets: paper,
+                    height: 140,
+                    y: -10,
+                    duration: 600,
+                    ease: 'Power2',
+                    onStart: () => {
+                        // Show bottom rod as it unrolls
+                        this.tweens.add({
+                            targets: rodBottom,
+                            alpha: 1,
+                            y: 60,
+                            duration: 600
+                        });
+                    },
+                    onComplete: () => {
+                        // Show text with fade-in
+                        scrollText.setText(sentence.text);
+                        scrollText.setY(0);
+                        this.tweens.add({
+                            targets: scrollText,
+                            alpha: 1,
+                            duration: 400
+                        });
+                        
+                        // Show label
+                        this.tweens.add({
+                            targets: label,
+                            alpha: 1,
+                            duration: 300
+                        });
+                        
+                        // Make scroll interactive
+                        paper.setInteractive();
+                        
+                        // Glow effect on hover
+                        paper.on('pointerover', () => {
+                            this.tweens.add({
+                                targets: paper,
+                                scaleX: 1.1,
+                                scaleY: 1.05,
+                                duration: 200
+                            });
+                        });
+                        
+                        paper.on('pointerout', () => {
+                            this.tweens.add({
+                                targets: paper,
+                                scaleX: 1,
+                                scaleY: 1,
+                                duration: 200
+                            });
+                        });
+                    }
+                });
+            }
+        });
+        
+        scrolls.push({ container: scrollContainer, sentence, paper, scrollText, label });
+    });
+    
+    // After all scrolls are revealed, show answer input
+    this.time.delayedCall(4000, () => {
+        instruction.setText('All scrolls revealed!\nEnter the 4-digit code (example: 3214)');
+        
+        const answerBox = this.add.rectangle(512, 580, 300, 60, 0x333333).setInteractive().setDepth(600);
+        const answerText = this.add.text(512, 580, 'Click to Enter Code', {
+            fontSize: '20px',
+            fill: '#aaa'
+        }).setOrigin(0.5).setDepth(601);
+        
+        this.puzzleObjects.push(answerBox, answerText);
+        
+        // Pulse animation for answer box
+        this.tweens.add({
+            targets: answerBox,
+            scaleX: 1.05,
+            scaleY: 1.05,
+            duration: 800,
+            yoyo: true,
+            repeat: -1,
+            ease: 'Sine.easeInOut'
+        });
+        
+        answerBox.on('pointerdown', () => {
+            const answer = prompt('Enter the 4-digit code:\nMetaphor(1), Simile(2), Personification(3), Onomatopoeia(4)') || '';
+            answerText.setText(answer).setColor('#fff');
+            
+            if (answer === p.answer) {
+                // Success animation - scrolls roll back up
+                scrolls.forEach((scroll, i) => {
+                    this.time.delayedCall(i * 150, () => {
+                        // Text fades out
+                        this.tweens.add({
+                            targets: [scroll.scrollText, scroll.label],
+                            alpha: 0,
+                            duration: 300
+                        });
+                        
+                        // Scroll rolls back up
+                        this.tweens.add({
+                            targets: scroll.container,
+                            y: -200,
+                            duration: 600,
+                            ease: 'Back.easeIn',
+                            delay: 300
+                        });
+                    });
+                });
+                
+                // Show success message
+                this.time.delayedCall(1500, () => {
+                    this.done(p.l);
+                });
+            } else {
+                answerText.setText('Wrong code! Try again').setColor('#f00');
+                
+                // Shake animation on wrong answer
+                scrolls.forEach(scroll => {
+                    this.tweens.add({
+                        targets: scroll.container,
+                        x: scroll.container.x - 10,
+                        duration: 50,
+                        yoyo: true,
+                        repeat: 5
+                    });
+                });
+            }
+        });
+    });
+}
+
+done(l) {
+    window.gameState.add(this.rm.k, l);
+    this.ldisp.setText('Letters: ' + window.gameState.get(this.rm.k));
+    
+    const msg = this.add.text(512, 650, 'Letter ' + l + ' Collected!', {
+        fontSize: '32px',
+        fill: '#00ff00',
+        stroke: '#000',
+        strokeThickness: 4
+    }).setOrigin(0.5).setDepth(1001);
+    this.puzzleObjects.push(msg);
+    
+    this.time.delayedCall(1500, () => {
+        this.puz++;
+        this.prog.setText('Puzzle ' + (this.puz + 1) + '/' + this.puzzles.length);
+        if (this.puz < this.puzzles.length) this.show();
+        else this.showFinal();
+    });
+}
+
+showFinal() {
+    this.clear();
+    const w = this.cameras.main.width;
+    
+    const title = this.add.text(w / 2, 220, 'All Letters Collected!', {
+        fontSize: '36px',
+        fill: '#ffd700',
+        stroke: '#000',
+        strokeThickness: 5
+    }).setOrigin(0.5).setDepth(999);
+    
+    const letters = this.add.text(w / 2, 290, 'Letters: ' + window.gameState.get(this.rm.k), {
+        fontSize: '32px',
+        fill: '#fff',
+        stroke: '#000',
+        strokeThickness: 3
+    }).setOrigin(0.5).setDepth(999);
+    
+    const instruction = this.add.text(w / 2, 360, 'Enter the keyword to complete this room:', {
+        fontSize: '22px',
+        fill: '#fff'
+    }).setOrigin(0.5).setDepth(999);
+    
+    const bx = this.add.rectangle(w / 2, 450, 350, 65, 0x333333).setInteractive().setDepth(500);
+    const tx = this.add.text(w / 2, 450, 'Click to enter keyword', {
+        fontSize: '20px',
+        fill: '#aaa'
+    }).setOrigin(0.5).setDepth(501);
+    
+    this.puzzleObjects.push(title, letters, instruction, bx, tx);
+    
+    bx.on('pointerdown', () => {
+        const ans = (prompt('Enter the keyword:') || '').toUpperCase();
+        if (ans === this.rm.kw) {
+            window.gameState.complete(this.rm.k);
+            const success = this.add.text(w / 2, 530, 'ROOM COMPLETE! 🎉', {
+                fontSize: '40px',
+                fill: '#00ff00',
+                stroke: '#000',
+                strokeThickness: 5
+            }).setOrigin(0.5).setDepth(999);
+            this.puzzleObjects.push(success);
+            this.time.delayedCall(2000, () => this.scene.start('Menu'));
+        } else {
+            tx.setText('Wrong keyword! Try again').setColor('#f00');
+        }
+    });
+}
+
+clear() {
+    if (this.walls) {
+        this.walls.clear(true, true);
+        this.walls = null;
+    }
+    if (this.collectibles) {
+        this.collectibles.clear(true, true);
+        this.collectibles = null;
+    }
+    this.puzzleObjects.forEach(obj => {
+        if (obj && obj.destroy) obj.destroy();
+    });
+    this.puzzleObjects = [];
+    this.collected = [];
+}
+}
+window.gameState = new GameState();
+const config = {
+type: Phaser.AUTO,
+width: 1024,
+height: 768,
+parent: 'game-container',
+backgroundColor: '#0f3460',
+physics: {
+default: 'arcade',
+arcade: { gravity: { y: 0 }, debug: false }
+},
+scene: [Boot, Load, Menu, Room]
+};
+new Phaser.Game(config);
+</script>
+</body>
+</html>
